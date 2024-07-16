@@ -1,6 +1,7 @@
 # AutomaticCoder
 Automatic Coder Writer/Rewiever Using LLM and LangGraph.
 
+# Working logic
 Write a request.
 
 - The model write the python code to solve the request
@@ -9,7 +10,7 @@ Write a request.
 - Errors are eventually fixed or missing packages are installed
 - Return to the rewier and repeat until max iterations is reached
    
-#Usage
+# Usage
 
 Write your API_KEY in an env file.
 
