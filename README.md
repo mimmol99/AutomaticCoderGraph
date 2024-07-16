@@ -11,9 +11,16 @@ Write a request.
    
 #Usage
 
+Write your API_KEY in an env file.
+
+install requirements
+
 ```python 
 pip install -r requirements.txt
 ```
+
+run main
+
 ```python 
 python3 main.py
 ```
