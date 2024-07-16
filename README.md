@@ -6,11 +6,14 @@ Automatic Coder Writer/Rewiever Using LLM and LangGraph.
 # Working logic
 Write a request.
 
-- The model write the python code to solve the request.
-- The reviewer check if the code is well-written and there are possible fixings/improvements.
-- The code is run.
+The model initially write the python code to solve the request.
+(or pass directly the code)
+
+- The reviewer write a feedback about the code.
+- the coder re-write the code using the feedback.
+- The new code is run by executor.
 - Errors are eventually fixed or missing packages are installed.
-- Return to the rewier and repeat until max iterations is .
+- Return to the reviewer and repeat all cycle until max iterations is reached.
    
 # Usage
 
