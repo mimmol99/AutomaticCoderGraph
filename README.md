@@ -1,6 +1,8 @@
 # AutomaticCoder
 Automatic Coder Writer/Rewiever Using LLM and LangGraph.
 
+![alt_text](https://github.com/mimmol99/AutomaticCoder/blob/main/graph.png?raw=True)
+
 # Working logic
 Write a request.
 
