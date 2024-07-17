@@ -5,10 +5,11 @@ from openai import OpenAI
 import langgraph.graph
 from langgraph.graph import Graph, StateGraph, END
 from langchain_core.runnables.graph_png import PngDrawer
-import subprocess
 import sys
 import inspect
 import ast
+import tempfile
+import subprocess
 
 
 def install(package):
@@ -28,6 +29,7 @@ client = OpenAI(
 
 def print_actual_func():
     print(f"Running node  {str(inspect.currentframe().f_back.f_code.co_name)} ")
+    
 
 
 def generate_conversation(prompt: str) -> str:
@@ -42,6 +44,11 @@ reviewer_start = "You are Code reviewer specialized in {}. \
 You need to review the given code following PEP8 guidelines and potential bugs \
 and point out issues as bullet list. \
 Code:\n{}"
+
+reviewer = "You are Code reviewer specialized in {}. \
+You need to review the given code and its output following PEP8 guidelines and potential bugs \
+and point out issues as bullet list. \
+Code:\n{} Output:\n{}"
 
 coder_start = "You are a Coder specialized in {} and you have to solve this problem:{}. \
 Improve the given code given the following guidelines. Guideline:\n{} \n \
@@ -93,7 +100,7 @@ class StateGraph(Graph):
 
 workflow = StateGraph(GraphState)
 
-def handle_reviewer(state: Dict) -> Dict:
+def handle_start_reviewer(state: Dict) -> Dict:
     print_actual_func()
     history = state.get('history', '').strip()
     code = state.get('code', '').strip()
@@ -112,19 +119,45 @@ def handle_coder(state: Dict) -> Dict:
     specialization = state.get('specialization', '').strip()
     code = generate_conversation(coder_start.format(specialization,problem,feedback, code_input))
     state.update({'history': history + '\n CODER:\n' + code, 'code': code})
+    print("Actual code:",state.get("code"))
     return state
+
 
 def handle_executor(state: Dict) -> Dict:
     print_actual_func()
     code_input = state.get('code', '').strip()
     error_output = None
+    output = None
+
+    with tempfile.NamedTemporaryFile(suffix=".py", delete=False) as tmp_file:
+        tmp_file.write(code_input.encode())
+        tmp_file_name = tmp_file.name
+
     try:
-        output = exec(code_input)
+        # Execute the temporary file and capture the output
+        result = subprocess.run(
+            ["python3", tmp_file_name],
+            capture_output=True,
+            text=True
+        )
+        output = result.stdout
+        if result.stderr:
+            error_output = result.stderr
     except Exception as e:
-        print(f"Found error:",e)
+        print(f"Found error:", e)
         error_output = str(e)
-    state.update({'error':error_output})
+    finally:
+        # Clean up the temporary file
+        try:
+            os.remove(tmp_file_name)
+        except OSError as e:
+            print(f"Error removing temporary file: {e}")
+    if error_output:print("Found error ",error_output)
+    state.update({'error': error_output, 'output': output})
     return state
+
+
+
 
 def handle_error(state: Dict) -> Dict:
     print_actual_func()
@@ -153,6 +186,22 @@ def handle_installing_package(state: Dict) -> Dict:
     state.update({'error': None})
     return state
 
+def handle_reviewer(state: Dict) -> Dict:
+    print_actual_func()
+    history = state.get('history', '').strip()
+    output = state.get('output',None)
+    rev = reviewer
+    if output is None: rev = reviewer_start
+    code = state.get('code', '').strip()
+    specialization = state.get('specialization', '').strip()
+    iterations = state.get('iterations')
+    if output is not None:
+        feedback = generate_conversation(rev.format(specialization,output, code))
+    else:
+        feedback = generate_conversation(rev.format(specialization, code))
+    state.update({'history': history + "\n REVIEWER:\n" + feedback, 'feedback': feedback, 'iterations': iterations + 1})
+    return state
+
 def handle_result(state: Dict) -> Dict:
     print_actual_func()
     history = state['history']
@@ -163,20 +212,32 @@ def handle_result(state: Dict) -> Dict:
     state.update({'rating': rating, 'code_compare': code_compare})
     return state
 
-workflow.add_node('handle_reviewer', handle_reviewer)
+workflow.add_node('handle_start_reviewer', handle_start_reviewer)
 workflow.add_node('handle_coder', handle_coder)
 workflow.add_node('handle_executor', handle_executor)
 workflow.add_node('handle_error', handle_error)
 workflow.add_node('handle_installing_package', handle_installing_package)
+workflow.add_node('handle_reviewer', handle_reviewer)
 workflow.add_node('handle_result', handle_result)
 
 def check_deployment(state: Dict) -> str:
     deployment_ready = 1 if 'yes' in generate_conversation(classify_feedback.format(state.get('code'), state.get('feedback'))).lower() else 0
-    total_iterations = 1 if state.get('iterations', 0) > 5 else 0
+    total_iterations = 1 if state.get('iterations', 0) > 3 else 0
     next_state = 'handle_result' if deployment_ready or total_iterations else 'handle_coder'
+    print("iter:",state.get('iterations'))
     return next_state
 
 def check_error(state: Dict) -> str:
+    error_present =  state.get('error', None)
+    next_state = 'handle_reviewer'
+    if error_present is not None:
+        if 'No module named' in state['error'] or 'pip install' in state['error']:
+            next_state = 'handle_installing_package'
+        else:
+            next_state = 'handle_error'
+    return next_state
+
+def check_exec(state:Dict) -> str:
     error_present =  state.get('error', None)
     next_state = 'handle_reviewer'
     if error_present is not None:
@@ -184,7 +245,28 @@ def check_error(state: Dict) -> str:
             next_state = 'handle_installing_package'
         else:
             next_state = 'handle_error'
-    return next_state
+    
+    return next_state 
+
+workflow.add_conditional_edges(
+    'handle_start_reviewer',
+    check_deployment,
+    {
+        "handle_coder": "handle_coder",
+        "handle_result": "handle_result",
+    }
+)
+
+
+workflow.add_conditional_edges(
+    'handle_executor',
+    check_exec,
+    {
+        "handle_error": "handle_error",
+        "handle_installing_package": "handle_installing_package",
+        "handle_reviewer": "handle_reviewer"
+    }
+)
 
 workflow.add_conditional_edges(
     'handle_reviewer',
@@ -195,41 +277,24 @@ workflow.add_conditional_edges(
     }
 )
 
-"""
-workflow.add_conditional_edges(
-    'handle_coder',
-    lambda state: 'handle_executor',
-    {
-        "handle_executor":"handle_executor"
-    }
-)
-"""
 
-workflow.add_conditional_edges(
-    'handle_executor',
-    check_error,
-    {
-        "handle_error": "handle_error",
-        "handle_installing_package": "handle_installing_package",
-        "handle_reviewer": "handle_reviewer"
-    }
-)
-
-
-workflow.set_entry_point('handle_reviewer')
+workflow.set_entry_point('handle_start_reviewer')
 workflow.add_edge('handle_coder', 'handle_executor')
-workflow.add_edge('handle_error','handle_reviewer')
-workflow.add_edge('handle_installing_package', 'handle_reviewer')
+workflow.add_edge('handle_error','handle_executor')
+workflow.add_edge('handle_installing_package', 'handle_executor')
 workflow.add_edge('handle_result', langgraph.graph.END)
 
 specialization = 'python'
 
-problem = 'Generate the complete python code to create a distillation model (from an openai model to an opensourced one) and test both model on LLM benchmarks. The code must be ready to be run to do all steps.'
+#problem = 'Generate a complete,detailed and longest possible python code to create a distillation model (from a bigger pre-trained model to smaller one) and test both model on LLM benchmarks. The code must be ready to be run to do all steps.'
+
+problem = 'Generate a complete,detailed and longest possible python code to visualize top 10 stocks trending. The code must be ready to be run to do all steps.'
+
 file_name = generate_conversation(f"Output just a 'file_name.py' that well represents this problem: {problem}. The output will be used as the name of a python file.")
 code = generate_conversation(problem)
 
 app = workflow.compile()
-conversation = app.invoke({"problem":problem,"history": code, "code": code, 'actual_code': code, "specialization": specialization, 'iterations': 0,'error':None})
+conversation = app.invoke({"recursion_limit":50,"problem":problem,"history": code, "code": code, 'actual_code': code, "specialization": specialization, 'iterations': 0,'error':None,'output':None})
 
 print(conversation['code_compare'])
 
@@ -238,5 +303,6 @@ new_code = conversation["code"]
 with open(file_name, 'w') as f:
     f.write(new_code)
 
-pngdrawer = PngDrawer()
-pngdrawer.draw(app.get_graph(), f"./{sys.argv[0]}_graph.png")
+
+#pngdrawer = PngDrawer()
+#pngdrawer.draw(app.get_graph(), f"./{sys.argv[0]}_graph.png")
