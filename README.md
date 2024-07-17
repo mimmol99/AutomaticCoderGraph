@@ -1,9 +1,11 @@
 # AutomaticCoder
-Automatic Coder Writer/Rewiever Using LLM and LangGraph.
+Simple Automatic Coder Writer/Rewiever Using LLM and LangGraph.
 
 ![alt_text](https://github.com/mimmol99/AutomaticCoder/blob/main/graph.png?raw=True)
 
 # Working logic
+For now support python.
+
 Write a request.
 
 The model initially write the python code to solve the request.
@@ -19,6 +21,8 @@ The model initially write the python code to solve the request.
 
 Write your API_KEY in an env file.
 
+Modify 'problem' variable with your request
+
 install requirements
 
 ```python 
@@ -30,4 +34,9 @@ run main
 ```python 
 python3 main.py
 ```
+
+# Future Improvements
+- Add a GUI to insert the request/API/select model
+- Add programming languages.
+- Improve execution to improve bug fixing.
 
