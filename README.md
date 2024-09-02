@@ -4,9 +4,9 @@ Simple Automatic Coder Writer/Rewiever Using LLM and LangGraph.
 ![alt_text](https://github.com/mimmol99/AutomaticCoder/blob/main/graph.png?raw=True)
 
 # Working logic
-For now support python.
+For now support only python code execution/generation.
 
-Write a request.
+Firstly write a request.
 
 The model initially write the python code to solve the request.
 (or pass directly the code)
